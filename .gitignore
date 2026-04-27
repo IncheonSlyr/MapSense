@@ -1,12 +1,14 @@
 .venv/
 .codex-logs/
-frontend/node_modules/
-frontend/dist/
+node_modules/
+.next/
+out/
+dist/
+coverage/
 **/__pycache__/
 **/.vercel/
 **/.env
 **/.env.*
-backend/data/
 *.pyc
 *.pyo
 *.log

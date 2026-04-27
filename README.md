@@ -1,68 +1,44 @@
 # MapSense
 
-MapSense is a full-stack renewable energy recommendation app that evaluates a location and suggests the best-fit energy source across Solar, Wind, and Hydro.
-
-It combines live weather and terrain data, a demand-aware recommendation engine, interactive map selection, persistent history, and a polished React dashboard.
+MapSense is a single-app renewable energy recommendation dashboard built with Next.js. It evaluates a location and suggests the best-fit renewable source across Solar, Wind, and Hydro using live weather, terrain context, and a demand-aware scoring model.
 
 ## Features
 
-- Interactive location picker with reverse geocoding
-- Demand-aware recommendation engine
-- Solar, Wind, and Hydro ranking with rationale
-- Source comparison and ROI visualizations
+- Interactive map picker with reverse geocoding
+- Demand-aware recommendation model
+- Solar, Wind, and Hydro rankings with rationale
+- Source comparison and ROI views
 - Weather widget and grouped site-relevance panels
-- SQLite-backed saved history
-- FastAPI backend with React + Vite frontend
+- Local saved-history drawer
 
 ## Stack
 
-- Backend: FastAPI, httpx, SQLite
-- Frontend: React, Vite, Leaflet
-- External data: Open-Meteo APIs, OpenStreetMap / CARTO tiles, Nominatim reverse geocoding
+- Next.js App Router
+- React
+- Leaflet
+- Open-Meteo APIs
+- OpenStreetMap / CARTO tiles
+- Nominatim reverse geocoding
 
 ## Local development
 
-### Backend
-
 ```powershell
 cd D:\RenewableEnergy
-.\.venv\Scripts\python -m pip install -r backend\requirements.txt
-.\.venv\Scripts\python -m uvicorn backend.app.main:app --reload --port 8000
-```
-
-### Frontend
-
-```powershell
-cd D:\RenewableEnergy\frontend
 npm.cmd install
 npm.cmd run dev
 ```
 
-- Frontend: `http://localhost:5173`
-- Backend docs: `http://localhost:8000/docs`
+- App: `http://localhost:3000`
 
-## API endpoints
+## API routes
 
 - `POST /api/recommend`
-- `GET /api/history`
 - `GET /api/locations/search`
 - `GET /api/locations/reverse`
 - `GET /api/health`
 
-## Deployment notes
-
-This repo can be deployed as:
-
-1. A Vercel FastAPI backend project using the `backend/` directory
-2. A Vercel Vite frontend project using the `frontend/` directory
-
-The frontend should be configured with:
-
-- `VITE_API_BASE_URL=<deployed backend url>`
-
 ## Notes
 
 - Live weather data comes from Open-Meteo.
-- If the external weather API is unavailable, the backend falls back to a local estimator.
-- Local history is stored in `backend/data/recommendations.db`.
-- On Vercel, history is stored in a temporary runtime database under `/tmp/mapsense`, so saved runs are ephemeral between cold starts.
+- If the external weather APIs are unavailable, MapSense falls back to a local estimator.
+- Saved history is stored in the browser for the current user session history experience.

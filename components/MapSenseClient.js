@@ -1,18 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
-import L from 'leaflet'
-import 'leaflet/dist/leaflet.css'
-import './App.css'
+'use client'
 
-const hostedApiBaseUrl =
-  typeof window !== 'undefined' && window.location.hostname.endsWith('vercel.app')
-    ? 'https://mapsense-api.vercel.app'
-    : typeof window !== 'undefined' &&
-        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-      ? 'http://127.0.0.1:8000'
-    : ''
+import dynamic from 'next/dynamic'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || hostedApiBaseUrl
-const LOCAL_HISTORY_KEY = 'mapsense-history'
+const MapView = dynamic(() => import('@/components/MapView'), { ssr: false })
 
 const initialForm = {
   location_name: 'Jaisalmer, India',
@@ -37,15 +28,6 @@ const featureLabels = {
   pressure: 'Pressure',
 }
 
-const weatherLabels = {
-  temperature_2m: 'Live temperature',
-  wind_speed_10m: 'Live wind speed',
-  surface_pressure: 'Surface pressure',
-  shortwave_radiation_sum: 'Solar radiation',
-  precipitation_sum: 'Precipitation',
-  timezone: 'Timezone',
-}
-
 const weatherConfig = {
   temperature_2m: { label: 'Temperature', unit: 'deg C', tone: 'peach', icon: 'T' },
   wind_speed_10m: { label: 'Wind speed', unit: 'm/s', tone: 'sky', icon: 'W' },
@@ -53,12 +35,6 @@ const weatherConfig = {
   shortwave_radiation_sum: { label: 'Solar radiation', unit: 'MJ/m2', tone: 'butter', icon: 'S' },
   precipitation_sum: { label: 'Precipitation', unit: 'mm', tone: 'mint', icon: 'R' },
   timezone: { label: 'Timezone', unit: '', tone: 'lavender', icon: 'Z' },
-}
-
-const sourceClassName = {
-  Solar: 'source-solar',
-  Wind: 'source-wind',
-  Hydro: 'source-hydro',
 }
 
 const siteGroups = [
@@ -85,103 +61,13 @@ const siteGroups = [
   },
 ]
 
-function buildHistoryFingerprint(item) {
-  return [
-    item.location_name || '',
-    item.location?.latitude || '',
-    item.location?.longitude || '',
-    item.demand_kw || '',
-    item.fetched_at || '',
-  ].join('|')
+const sourceColors = {
+  Solar: 'var(--accent-butter-strong)',
+  Wind: 'var(--accent-sky-strong)',
+  Hydro: 'var(--accent-mint-strong)',
 }
 
-function readLocalHistory() {
-  if (typeof window === 'undefined') {
-    return []
-  }
-
-  try {
-    const raw = window.localStorage.getItem(LOCAL_HISTORY_KEY)
-    if (!raw) {
-      return []
-    }
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
-
-function writeLocalHistory(items) {
-  if (typeof window === 'undefined') {
-    return
-  }
-
-  window.localStorage.setItem(LOCAL_HISTORY_KEY, JSON.stringify(items))
-}
-
-function mergeHistoryItems(...groups) {
-  const merged = []
-  const seen = new Set()
-
-  groups.flat().forEach((item, index) => {
-    const fingerprint = buildHistoryFingerprint(item)
-    if (seen.has(fingerprint)) {
-      return
-    }
-
-    seen.add(fingerprint)
-    merged.push({
-      ...item,
-      id: item.id || item.saved_at || Date.now() + index,
-      saved_at: item.saved_at || item.created_at || new Date().toISOString(),
-    })
-  })
-
-  return merged
-    .sort((left, right) => new Date(right.saved_at).getTime() - new Date(left.saved_at).getTime())
-    .slice(0, 12)
-}
-
-function persistHistoryItem(item) {
-  const nextItems = mergeHistoryItems(
-    [
-      {
-        ...item,
-        id: item.id || Date.now(),
-        saved_at: new Date().toISOString(),
-      },
-    ],
-    readLocalHistory(),
-  )
-  writeLocalHistory(nextItems)
-  return nextItems
-}
-
-function buildSourceChartData(result) {
-  if (!result) {
-    return []
-  }
-
-  return result.rankings.map((item) => ({
-    label: item.source,
-    score: item.score,
-    output: item.estimated_output_kw,
-    efficiency: item.expected_efficiency,
-  }))
-}
-
-function buildRoiChartData(result) {
-  if (!result) {
-    return []
-  }
-
-  return result.rankings.map((item) => ({
-    label: item.source,
-    roi: item.roi_years,
-    score: item.score,
-  }))
-}
+const HISTORY_KEY = 'mapsense-next-history'
 
 function formatMetric(value, suffix = '') {
   return `${Number(value).toFixed(1)}${suffix}`
@@ -189,55 +75,67 @@ function formatMetric(value, suffix = '') {
 
 function formatWeatherValue(key, value) {
   const config = weatherConfig[key]
-  if (!config) {
-    return String(value)
-  }
-  if (typeof value === 'string') {
-    return value
-  }
+  if (!config) return String(value)
+  if (typeof value === 'string') return value
   return `${Number(value).toFixed(1)}${config.unit ? ` ${config.unit}` : ''}`
 }
 
-function SourceComparisonChart({ items }) {
-  if (items.length === 0) {
-    return <p className="helper-copy">Run an analysis to compare sources.</p>
+function readHistory() {
+  try {
+    const raw = window.localStorage.getItem(HISTORY_KEY)
+    if (!raw) return []
+    const items = JSON.parse(raw)
+    return Array.isArray(items) ? items : []
+  } catch {
+    return []
   }
+}
 
-  const chartHeight = 220
-  const yAxisTicks = [0, 25, 50, 75, 100]
+function writeHistory(items) {
+  window.localStorage.setItem(HISTORY_KEY, JSON.stringify(items.slice(0, 10)))
+}
 
+function mergeHistory(nextItem) {
+  const current = readHistory()
+  const fingerprint = `${nextItem.location_name}|${nextItem.location.latitude}|${nextItem.location.longitude}|${nextItem.demand_kw}|${nextItem.fetched_at}`
+  const deduped = [nextItem, ...current].filter((item, index, array) => {
+    const id = `${item.location_name}|${item.location.latitude}|${item.location.longitude}|${item.demand_kw}|${item.fetched_at}`
+    return array.findIndex((candidate) => `${candidate.location_name}|${candidate.location.latitude}|${candidate.location.longitude}|${candidate.demand_kw}|${candidate.fetched_at}` === id) === index
+  })
+  void fingerprint
+  writeHistory(deduped)
+  return deduped
+}
+
+function SourceChart({ items }) {
   return (
     <section className="data-panel">
       <div className="panel-heading">
         <div>
           <p className="section-kicker">Source</p>
-          <h3>Source Comparison</h3>
+          <h3>Source comparison</h3>
         </div>
-        <p className="panel-copy">Score, output, and efficiency for the current site.</p>
+        <p className="panel-copy">Score, output, and efficiency at a glance.</p>
       </div>
-      <div className="stat-chart" role="img" aria-label="Source comparison chart">
+      <div className="stat-chart">
         <div className="stat-axis">
-          {yAxisTicks.slice().reverse().map((tick) => (
-            <span key={tick}>{tick}%</span>
-          ))}
+          {[100, 75, 50, 25, 0].map((tick) => <span key={tick}>{tick}%</span>)}
         </div>
-        <div className="stat-plot" style={{ height: chartHeight }}>
-          {yAxisTicks.map((tick) => (
-            <div key={tick} className="stat-gridline" style={{ bottom: `${tick}%` }} />
-          ))}
+        <div className="stat-plot">
+          {[0, 25, 50, 75, 100].map((tick) => <div key={tick} className="stat-gridline" style={{ bottom: `${tick}%` }} />)}
           <div className="stat-bars">
             {items.map((item) => (
-              <div key={item.label} className={`stat-bar-group ${sourceClassName[item.label] || ''}`}>
+              <div key={item.source} className="stat-bar-group">
                 <div className="stat-bar-head">
-                  <span>{item.label}</span>
+                  <span>{item.source}</span>
                   <strong>{item.score}%</strong>
                 </div>
                 <div className="stat-bar-shell">
-                  <div className="stat-bar-fill" style={{ height: `${item.score}%` }} />
+                  <div className="stat-bar-fill" style={{ height: `${item.score}%`, background: sourceColors[item.source] }} />
                 </div>
                 <div className="stat-bar-foot">
-                  <span>{item.output} kW</span>
-                  <span>{item.efficiency}% eff.</span>
+                  <span>{item.estimated_output_kw} kW</span>
+                  <span>{item.expected_efficiency}% eff.</span>
                 </div>
               </div>
             ))}
@@ -248,33 +146,28 @@ function SourceComparisonChart({ items }) {
   )
 }
 
-function RoiComparisonChart({ items }) {
-  if (items.length === 0) {
-    return <p className="helper-copy">Run an analysis to compare ROI across sources.</p>
-  }
-
-  const maxRoi = Math.max(...items.map((item) => item.roi), 1)
-
+function RoiChart({ items }) {
+  const maxRoi = Math.max(...items.map((item) => item.roi_years), 1)
   return (
     <section className="data-panel">
       <div className="panel-heading">
         <div>
           <p className="section-kicker">Economics</p>
-          <h3>ROI Comparison</h3>
+          <h3>ROI comparison</h3>
         </div>
-        <p className="panel-copy">Lower payback years are generally a stronger financial fit.</p>
+        <p className="panel-copy">Lower payback years are a stronger financial fit.</p>
       </div>
-      <div className="roi-chart" role="img" aria-label="ROI comparison chart">
+      <div className="roi-chart">
         {items.map((item) => (
-          <div key={item.label} className={`roi-row ${sourceClassName[item.label] || ''}`}>
+          <div key={item.source} className="roi-row">
             <div className="roi-meta">
-              <strong>{item.label}</strong>
+              <strong>{item.source}</strong>
               <span>{item.score}% score</span>
             </div>
             <div className="roi-track">
-              <div className="roi-fill" style={{ width: `${(item.roi / maxRoi) * 100}%` }} />
+              <div className="roi-fill" style={{ width: `${(item.roi_years / maxRoi) * 100}%`, background: sourceColors[item.source] }} />
             </div>
-            <strong className="roi-value">{item.roi} yrs</strong>
+            <strong className="roi-value">{item.roi_years} yrs</strong>
           </div>
         ))}
       </div>
@@ -282,139 +175,7 @@ function RoiComparisonChart({ items }) {
   )
 }
 
-function ActualMap({ latitude, longitude, label, onSelectLocation }) {
-  const mapRef = useRef(null)
-  const mapInstanceRef = useRef(null)
-  const markerRef = useRef(null)
-
-  useEffect(() => {
-    if (!mapRef.current || mapInstanceRef.current) {
-      return undefined
-    }
-
-    const map = L.map(mapRef.current, {
-      zoomControl: true,
-      scrollWheelZoom: false,
-      attributionControl: true,
-    }).setView([latitude, longitude], 4)
-
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-      subdomains: 'abcd',
-      maxZoom: 20,
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-    }).addTo(map)
-
-    const marker = L.marker([latitude, longitude]).addTo(map)
-    marker.bindPopup(label)
-
-    map.on('click', (event) => {
-      onSelectLocation({
-        latitude: Number(event.latlng.lat.toFixed(4)),
-        longitude: Number(event.latlng.lng.toFixed(4)),
-      })
-    })
-
-    mapInstanceRef.current = map
-    markerRef.current = marker
-
-    return () => {
-      map.remove()
-      mapInstanceRef.current = null
-      markerRef.current = null
-    }
-  }, [label, latitude, longitude, onSelectLocation])
-
-  useEffect(() => {
-    if (!mapInstanceRef.current || !markerRef.current) {
-      return
-    }
-
-    mapInstanceRef.current.setView([latitude, longitude], mapInstanceRef.current.getZoom(), {
-      animate: true,
-    })
-    markerRef.current.setLatLng([latitude, longitude])
-    markerRef.current.bindPopup(label)
-  }, [label, latitude, longitude])
-
-  return <div ref={mapRef} className="actual-map" aria-label="Location map" />
-}
-
-function HistorySidebar({ history, historyLoading, onSelect }) {
-  const [openId, setOpenId] = useState(null)
-
-  return (
-    <aside className="history-sidebar">
-      <div className="panel-heading">
-        <div>
-          <p className="section-kicker">Saved Runs</p>
-          <h3>History</h3>
-        </div>
-        <p className="panel-copy">Open any saved recommendation to inspect its inputs.</p>
-      </div>
-
-      {historyLoading ? <p className="helper-copy">Loading history...</p> : null}
-      {!historyLoading && history.length === 0 ? <p className="helper-copy">No saved recommendations yet.</p> : null}
-
-      <div className="history-list">
-        {history.map((item) => {
-          const isOpen = openId === item.id
-          return (
-            <div key={item.id} className="history-item">
-              <button
-                type="button"
-                className="history-item-toggle"
-                onClick={() => setOpenId(isOpen ? null : item.id)}
-              >
-                <div>
-                  <strong>{item.location_name || `Saved site #${item.id}`}</strong>
-                  <span>{item.best_source} / {item.confidence}% confidence</span>
-                </div>
-                <span>{isOpen ? '-' : '+'}</span>
-              </button>
-
-              {isOpen ? (
-                <div className="history-item-body">
-                  <button type="button" className="inline-button" onClick={() => onSelect(item)}>
-                    Load recommendation
-                  </button>
-                  <div className="parameter-grid">
-                    <div>
-                      <span>Latitude</span>
-                      <strong>{item.location.latitude}</strong>
-                    </div>
-                    <div>
-                      <span>Longitude</span>
-                      <strong>{item.location.longitude}</strong>
-                    </div>
-                    <div>
-                      <span>Demand</span>
-                      <strong>{item.demand_kw} kW</strong>
-                    </div>
-                    <div>
-                      <span>Source</span>
-                      <strong>{item.data_source}</strong>
-                    </div>
-                  </div>
-                  <div className="parameter-grid">
-                    {Object.entries(item.estimated_features || {}).slice(0, 4).map(([key, value]) => (
-                      <div key={key}>
-                        <span>{featureLabels[key] || key}</span>
-                        <strong>{value}</strong>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          )
-        })}
-      </div>
-    </aside>
-  )
-}
-
-function App() {
+export default function MapSenseClient() {
   const [form, setForm] = useState(initialForm)
   const [searchText, setSearchText] = useState(initialForm.location_name)
   const [searchResults, setSearchResults] = useState([])
@@ -423,38 +184,30 @@ function App() {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [inputsOpen, setInputsOpen] = useState(true)
   const [loading, setLoading] = useState(true)
-  const [historyLoading, setHistoryLoading] = useState(true)
   const [searchLoading, setSearchLoading] = useState(false)
   const [resolvingLocation, setResolvingLocation] = useState(false)
-  const [error, setError] = useState('')
   const [detailView, setDetailView] = useState('source')
+  const [error, setError] = useState('')
   const reverseLookupIdRef = useRef(0)
   const suppressSearchRef = useRef(false)
 
-  async function fetchHistory() {
-    setHistoryLoading(true)
-    try {
-      const localItems = readLocalHistory()
-      const response = await fetch(`${apiBaseUrl}/api/history?limit=8`)
-      if (!response.ok) {
-        throw new Error('Unable to load saved history.')
-      }
-      const data = await response.json()
-      const mergedItems = mergeHistoryItems(localItems, data.items)
-      writeLocalHistory(mergedItems)
-      setHistory(mergedItems)
-    } catch {
-      setHistory(readLocalHistory())
-    } finally {
-      setHistoryLoading(false)
+  useEffect(() => {
+    const storedHistory = readHistory()
+    setHistory(storedHistory)
+  }, [])
+
+  useEffect(() => {
+    document.body.style.overflow = historyOpen ? 'hidden' : ''
+    return () => {
+      document.body.style.overflow = ''
     }
-  }
+  }, [historyOpen])
 
   async function requestRecommendation(nextForm) {
     setLoading(true)
     setError('')
     try {
-      const response = await fetch(`${apiBaseUrl}/api/recommend`, {
+      const response = await fetch('/api/recommend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(nextForm),
@@ -464,8 +217,7 @@ function App() {
       }
       const data = await response.json()
       setResult(data)
-      setHistory(persistHistoryItem(data))
-      await fetchHistory()
+      setHistory(mergeHistory(data))
     } catch (fetchError) {
       setError(fetchError.message)
     } finally {
@@ -474,55 +226,7 @@ function App() {
   }
 
   useEffect(() => {
-    document.body.style.overflow = historyOpen ? 'hidden' : ''
-    return () => {
-      document.body.style.overflow = ''
-    }
-  }, [historyOpen])
-
-  useEffect(() => {
-    let isActive = true
-
-    async function bootstrap() {
-      try {
-        const [recommendationResponse, historyResponse] = await Promise.all([
-          fetch(`${apiBaseUrl}/api/recommend`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(initialForm),
-          }),
-          fetch(`${apiBaseUrl}/api/history?limit=8`),
-        ])
-
-        if (!recommendationResponse.ok) {
-          throw new Error('Unable to fetch recommendation right now.')
-        }
-
-        const recommendationData = await recommendationResponse.json()
-        const historyData = historyResponse.ok ? await historyResponse.json() : { items: [] }
-
-        if (isActive) {
-          setResult(recommendationData)
-          setHistory(mergeHistoryItems(readLocalHistory(), historyData.items))
-        }
-      } catch (fetchError) {
-        if (isActive) {
-          setError(fetchError.message)
-          setHistory(readLocalHistory())
-        }
-      } finally {
-        if (isActive) {
-          setLoading(false)
-          setHistoryLoading(false)
-        }
-      }
-    }
-
-    void bootstrap()
-
-    return () => {
-      isActive = false
-    }
+    void requestRecommendation(initialForm)
   }, [])
 
   useEffect(() => {
@@ -531,8 +235,8 @@ function App() {
       suppressSearchRef.current = false
       return
     }
-
     if (trimmed.length < 2 || trimmed.startsWith('Selected point (')) {
+      setSearchResults([])
       return
     }
 
@@ -540,12 +244,11 @@ function App() {
     const timerId = window.setTimeout(async () => {
       setSearchLoading(true)
       try {
-        const response = await fetch(
-          `${apiBaseUrl}/api/locations/search?q=${encodeURIComponent(trimmed)}&count=5`,
-          { signal: controller.signal },
-        )
+        const response = await fetch(`/api/locations/search?q=${encodeURIComponent(trimmed)}&count=5`, {
+          signal: controller.signal,
+        })
         if (!response.ok) {
-          throw new Error('Unable to search locations.')
+          throw new Error('Search failed')
         }
         const data = await response.json()
         setSearchResults(data)
@@ -556,7 +259,7 @@ function App() {
       } finally {
         setSearchLoading(false)
       }
-    }, 300)
+    }, 280)
 
     return () => {
       controller.abort()
@@ -582,7 +285,7 @@ function App() {
     setForm(nextForm)
     setSearchText(preset.location_name)
     setSearchResults([])
-    requestRecommendation(nextForm)
+    void requestRecommendation(nextForm)
   }
 
   function applySearchResult(item) {
@@ -599,15 +302,14 @@ function App() {
   }
 
   function loadHistoryItem(item) {
-    const nextForm = {
-      location_name: item.location_name || `Saved site #${item.id}`,
+    suppressSearchRef.current = true
+    setForm({
+      location_name: item.location_name || 'Saved site',
       latitude: Number(item.location.latitude),
       longitude: Number(item.location.longitude),
       demand_kw: Number(item.demand_kw),
-    }
-    suppressSearchRef.current = true
-    setForm(nextForm)
-    setSearchText(nextForm.location_name)
+    })
+    setSearchText(item.location_name || 'Saved site')
     setResult(item)
     setHistoryOpen(false)
   }
@@ -629,18 +331,14 @@ function App() {
     setSearchResults([])
 
     try {
-      const response = await fetch(
-        `${apiBaseUrl}/api/locations/reverse?latitude=${latitude}&longitude=${longitude}`,
-      )
+      const response = await fetch(`/api/locations/reverse?latitude=${latitude}&longitude=${longitude}`)
       if (!response.ok) {
-        throw new Error('Unable to resolve location name.')
+        throw new Error('Reverse lookup failed')
       }
-
       const data = await response.json()
       if (reverseLookupIdRef.current !== requestId) {
         return
       }
-
       setForm((current) => ({
         ...current,
         latitude,
@@ -663,11 +361,10 @@ function App() {
 
   function handleSubmit(event) {
     event.preventDefault()
-    requestRecommendation(form)
+    void requestRecommendation(form)
   }
 
-  const sourceChartData = buildSourceChartData(result)
-  const roiChartData = buildRoiChartData(result)
+  const currentRankings = useMemo(() => result?.rankings || [], [result])
 
   return (
     <main className="app-shell">
@@ -680,11 +377,7 @@ function App() {
           </p>
         </div>
         <div className="top-toolbar">
-          <button
-            type="button"
-            className={`toolbar-button ${inputsOpen ? 'active' : ''}`}
-            onClick={() => setInputsOpen((current) => !current)}
-          >
+          <button type="button" className={`toolbar-button ${inputsOpen ? 'active' : ''}`} onClick={() => setInputsOpen((current) => !current)}>
             {inputsOpen ? 'Hide parameters' : 'Show parameters'}
           </button>
           <button type="button" className="toolbar-button" onClick={() => setHistoryOpen(true)}>
@@ -693,28 +386,32 @@ function App() {
         </div>
       </header>
 
-      <div
-        className={`sidebar-overlay ${historyOpen ? 'visible' : ''}`}
-        onClick={() => setHistoryOpen(false)}
-        aria-hidden={historyOpen ? 'false' : 'true'}
-      />
+      <div className={`sidebar-overlay ${historyOpen ? 'visible' : ''}`} onClick={() => setHistoryOpen(false)} />
 
       <aside className={`sidebar-drawer ${historyOpen ? 'open' : ''}`}>
         <div className="sidebar-drawer-header">
           <div>
-            <p className="section-kicker">Saved Runs</p>
-            <h2>Recommendation History</h2>
+            <p className="section-kicker">Saved runs</p>
+            <h2>Recommendation history</h2>
           </div>
-          <button
-            type="button"
-            className="sidebar-close"
-            onClick={() => setHistoryOpen(false)}
-            aria-label="Close history sidebar"
-          >
+          <button type="button" className="sidebar-close" onClick={() => setHistoryOpen(false)}>
             x
           </button>
         </div>
-        <HistorySidebar history={history} historyLoading={historyLoading} onSelect={loadHistoryItem} />
+        <div className="history-list">
+          {history.length === 0 ? <p className="helper-copy">No saved recommendations yet.</p> : null}
+          {history.map((item) => (
+            <div key={item.id} className="history-item">
+              <button type="button" className="history-item-toggle" onClick={() => loadHistoryItem(item)}>
+                <div>
+                  <strong>{item.location_name}</strong>
+                  <span>{item.best_source} / {item.confidence}% confidence</span>
+                </div>
+                <span>{item.demand_kw} kW</span>
+              </button>
+            </div>
+          ))}
+        </div>
       </aside>
 
       <section className={`workspace-grid ${inputsOpen ? '' : 'map-only'}`}>
@@ -724,11 +421,9 @@ function App() {
               <p className="section-kicker">Map</p>
               <h2>{form.location_name || 'Selected location'}</h2>
             </div>
-            <p className="panel-copy">
-              {resolvingLocation ? 'Resolving place name...' : 'Click anywhere on the map to update the location.'}
-            </p>
+            <p className="panel-copy">{resolvingLocation ? 'Resolving place name...' : 'Click anywhere on the map to update the location.'}</p>
           </div>
-          <ActualMap
+          <MapView
             latitude={form.latitude}
             longitude={form.longitude}
             label={form.location_name || 'Selected location'}
@@ -763,9 +458,6 @@ function App() {
                   const nextValue = event.target.value
                   setSearchText(nextValue)
                   updateField('location_name', nextValue)
-                  if (nextValue.trim().length < 2) {
-                    setSearchResults([])
-                  }
                 }}
                 placeholder="Search city or region"
               />
@@ -775,12 +467,7 @@ function App() {
             {searchResults.length > 0 ? (
               <div className="search-results">
                 {searchResults.map((item) => (
-                  <button
-                    key={`${item.name}-${item.latitude}-${item.longitude}`}
-                    type="button"
-                    className="search-result"
-                    onClick={() => applySearchResult(item)}
-                  >
+                  <button key={`${item.name}-${item.latitude}-${item.longitude}`} type="button" className="search-result" onClick={() => applySearchResult(item)}>
                     <strong>{item.name}</strong>
                     <span>{[item.admin1, item.country].filter(Boolean).join(', ')}</span>
                   </button>
@@ -801,43 +488,20 @@ function App() {
             <div className="input-row">
               <label>
                 Latitude
-                <input
-                  type="number"
-                  step="0.0001"
-                  min="-90"
-                  max="90"
-                  value={form.latitude}
-                  onChange={(event) => updateField('latitude', event.target.value)}
-                />
+                <input type="number" step="0.0001" min="-90" max="90" value={form.latitude} onChange={(event) => updateField('latitude', event.target.value)} />
               </label>
               <label>
                 Longitude
-                <input
-                  type="number"
-                  step="0.0001"
-                  min="-180"
-                  max="180"
-                  value={form.longitude}
-                  onChange={(event) => updateField('longitude', event.target.value)}
-                />
+                <input type="number" step="0.0001" min="-180" max="180" value={form.longitude} onChange={(event) => updateField('longitude', event.target.value)} />
               </label>
             </div>
 
             <label>
               Estimated demand (kW)
-              <input
-                type="number"
-                step="1"
-                min="1"
-                max="10000"
-                value={form.demand_kw}
-                onChange={(event) => updateField('demand_kw', event.target.value)}
-              />
+              <input type="number" step="1" min="1" max="10000" value={form.demand_kw} onChange={(event) => updateField('demand_kw', event.target.value)} />
             </label>
 
-            <button type="submit" className="inline-button action-button">
-              Analyze site
-            </button>
+            <button type="submit" className="inline-button action-button">Analyze site</button>
             {error ? <p className="error-copy">{error}</p> : null}
           </form>
         ) : null}
@@ -849,7 +513,7 @@ function App() {
           <>
             <section className="summary-strip">
               <div className="summary-intro">
-                <p className="section-kicker">Best Recommendation</p>
+                <p className="section-kicker">Best recommendation</p>
                 <h2>{result.best_source}</h2>
                 <p className="hero-copy">{result.summary}</p>
                 <div className="summary-meta">
@@ -875,7 +539,7 @@ function App() {
             </section>
 
             <section className="rank-grid">
-              {result.rankings.map((item) => (
+              {currentRankings.map((item) => (
                 <article key={item.source} className={`rank-row ${item.source === result.best_source ? 'winner' : ''}`}>
                   <div className="rank-title">
                     <h3>{item.source}</h3>
@@ -904,27 +568,19 @@ function App() {
             <section className="details-shell">
               <div className="panel-heading">
                 <div>
-                  <p className="section-kicker">Support Data</p>
+                  <p className="section-kicker">Support data</p>
                   <h2>Supporting views</h2>
                 </div>
-                <div className="segmented-control" role="tablist" aria-label="Detail views">
-                  <button type="button" className={detailView === 'source' ? 'active' : ''} onClick={() => setDetailView('source')}>
-                    Source
-                  </button>
-                  <button type="button" className={detailView === 'history' ? 'active' : ''} onClick={() => setDetailView('history')}>
-                    ROI
-                  </button>
-                  <button type="button" className={detailView === 'weather' ? 'active' : ''} onClick={() => setDetailView('weather')}>
-                    Weather
-                  </button>
-                  <button type="button" className={detailView === 'features' ? 'active' : ''} onClick={() => setDetailView('features')}>
-                    Site
-                  </button>
+                <div className="segmented-control">
+                  <button type="button" className={detailView === 'source' ? 'active' : ''} onClick={() => setDetailView('source')}>Source</button>
+                  <button type="button" className={detailView === 'roi' ? 'active' : ''} onClick={() => setDetailView('roi')}>ROI</button>
+                  <button type="button" className={detailView === 'weather' ? 'active' : ''} onClick={() => setDetailView('weather')}>Weather</button>
+                  <button type="button" className={detailView === 'site' ? 'active' : ''} onClick={() => setDetailView('site')}>Site</button>
                 </div>
               </div>
 
-              {detailView === 'source' ? <SourceComparisonChart items={sourceChartData} /> : null}
-              {detailView === 'history' ? <RoiComparisonChart items={roiChartData} /> : null}
+              {detailView === 'source' ? <SourceChart items={currentRankings} /> : null}
+              {detailView === 'roi' ? <RoiChart items={currentRankings} /> : null}
               {detailView === 'weather' ? (
                 <section className="data-panel">
                   <div className="panel-heading">
@@ -932,7 +588,7 @@ function App() {
                       <p className="section-kicker">Weather</p>
                       <h3>Live conditions</h3>
                     </div>
-                    <p className="panel-copy">Latest weather context used by the engine.</p>
+                    <p className="panel-copy">Latest weather context used by the model.</p>
                   </div>
                   <div className="weather-widget">
                     <div className="weather-widget-main tone-sky">
@@ -959,7 +615,7 @@ function App() {
                     </div>
                     <div className="weather-widget-stats">
                       {Object.entries(result.weather_context).map(([key, value]) => {
-                        const config = weatherConfig[key] || { label: weatherLabels[key] || key, tone: 'slate', icon: '*' }
+                        const config = weatherConfig[key] || { label: key, tone: 'slate', icon: '*' }
                         return (
                           <article key={key} className={`weather-stat tone-${config.tone}`}>
                             <span className="weather-icon">{config.icon}</span>
@@ -974,14 +630,15 @@ function App() {
                   </div>
                 </section>
               ) : null}
-              {detailView === 'features' ? (
+
+              {detailView === 'site' ? (
                 <section className="data-panel">
                   <div className="panel-heading">
                     <div>
                       <p className="section-kicker">Site</p>
                       <h3>Estimated parameters</h3>
                     </div>
-                    <p className="panel-copy">Normalized features passed into the recommendation engine.</p>
+                    <p className="panel-copy">Features passed into the recommendation model.</p>
                   </div>
                   <div className="site-profile">
                     <div className="site-profile-hero tone-lavender">
@@ -1032,5 +689,3 @@ function App() {
     </main>
   )
 }
-
-export default App
