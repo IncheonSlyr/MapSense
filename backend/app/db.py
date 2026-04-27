@@ -6,36 +6,40 @@ from collections.abc import Iterable
 from datetime import datetime, timezone
 from typing import Any
 
-from .config import DATABASE_PATH
+from .config import DATA_DIR, DATABASE_PATH
 
 
 def get_connection() -> sqlite3.Connection:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(DATABASE_PATH)
     connection.row_factory = sqlite3.Row
     return connection
 
 
 def init_db() -> None:
-    with get_connection() as connection:
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS recommendation_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                created_at TEXT NOT NULL,
-                location_name TEXT,
-                latitude REAL NOT NULL,
-                longitude REAL NOT NULL,
-                demand_kw REAL NOT NULL,
-                best_source TEXT NOT NULL,
-                confidence REAL NOT NULL,
-                summary TEXT NOT NULL,
-                estimated_features_json TEXT NOT NULL,
-                rankings_json TEXT NOT NULL,
-                data_source TEXT NOT NULL,
-                fetched_at TEXT NOT NULL
+    try:
+        with get_connection() as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS recommendation_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at TEXT NOT NULL,
+                    location_name TEXT,
+                    latitude REAL NOT NULL,
+                    longitude REAL NOT NULL,
+                    demand_kw REAL NOT NULL,
+                    best_source TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    summary TEXT NOT NULL,
+                    estimated_features_json TEXT NOT NULL,
+                    rankings_json TEXT NOT NULL,
+                    data_source TEXT NOT NULL,
+                    fetched_at TEXT NOT NULL
+                )
+                """
             )
-            """
-        )
+    except sqlite3.Error:
+        return
 
 
 def save_recommendation(record: dict[str, Any]) -> int:
@@ -53,66 +57,72 @@ def save_recommendation(record: dict[str, Any]) -> int:
         "data_source": record["data_source"],
         "fetched_at": record["fetched_at"],
     }
-    with get_connection() as connection:
-        cursor = connection.execute(
-            """
-            INSERT INTO recommendation_history (
-                created_at,
-                location_name,
-                latitude,
-                longitude,
-                demand_kw,
-                best_source,
-                confidence,
-                summary,
-                estimated_features_json,
-                rankings_json,
-                data_source,
-                fetched_at
-            ) VALUES (
-                :created_at,
-                :location_name,
-                :latitude,
-                :longitude,
-                :demand_kw,
-                :best_source,
-                :confidence,
-                :summary,
-                :estimated_features_json,
-                :rankings_json,
-                :data_source,
-                :fetched_at
+    try:
+        with get_connection() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO recommendation_history (
+                    created_at,
+                    location_name,
+                    latitude,
+                    longitude,
+                    demand_kw,
+                    best_source,
+                    confidence,
+                    summary,
+                    estimated_features_json,
+                    rankings_json,
+                    data_source,
+                    fetched_at
+                ) VALUES (
+                    :created_at,
+                    :location_name,
+                    :latitude,
+                    :longitude,
+                    :demand_kw,
+                    :best_source,
+                    :confidence,
+                    :summary,
+                    :estimated_features_json,
+                    :rankings_json,
+                    :data_source,
+                    :fetched_at
+                )
+                """,
+                payload,
             )
-            """,
-            payload,
-        )
-        return int(cursor.lastrowid)
+            return int(cursor.lastrowid)
+    except sqlite3.Error:
+        return 0
 
 
 def load_recent_recommendations(limit: int = 10) -> list[dict[str, Any]]:
-    with get_connection() as connection:
-        rows = connection.execute(
-            """
-            SELECT
-                id,
-                created_at,
-                location_name,
-                latitude,
-                longitude,
-                demand_kw,
-                best_source,
-                confidence,
-                summary,
-                estimated_features_json,
-                rankings_json,
-                data_source,
-                fetched_at
-            FROM recommendation_history
-            ORDER BY id DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
+    try:
+        with get_connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    id,
+                    created_at,
+                    location_name,
+                    latitude,
+                    longitude,
+                    demand_kw,
+                    best_source,
+                    confidence,
+                    summary,
+                    estimated_features_json,
+                    rankings_json,
+                    data_source,
+                    fetched_at
+                FROM recommendation_history
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+    except sqlite3.Error:
+        return []
     return [_hydrate_row(row) for row in rows]
 
 
@@ -138,4 +148,3 @@ def _hydrate_row(row: sqlite3.Row) -> dict[str, Any]:
 
 def save_many(records: Iterable[dict[str, Any]]) -> list[int]:
     return [save_recommendation(record) for record in records]
-

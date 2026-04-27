@@ -4,6 +4,7 @@ import 'leaflet/dist/leaflet.css'
 import './App.css'
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || ''
+const LOCAL_HISTORY_KEY = 'mapsense-history'
 
 const initialForm = {
   location_name: 'Jaisalmer, India',
@@ -75,6 +76,79 @@ const siteGroups = [
     fields: ['water_availability', 'elevation', 'pressure'],
   },
 ]
+
+function buildHistoryFingerprint(item) {
+  return [
+    item.location_name || '',
+    item.location?.latitude || '',
+    item.location?.longitude || '',
+    item.demand_kw || '',
+    item.fetched_at || '',
+  ].join('|')
+}
+
+function readLocalHistory() {
+  if (typeof window === 'undefined') {
+    return []
+  }
+
+  try {
+    const raw = window.localStorage.getItem(LOCAL_HISTORY_KEY)
+    if (!raw) {
+      return []
+    }
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function writeLocalHistory(items) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  window.localStorage.setItem(LOCAL_HISTORY_KEY, JSON.stringify(items))
+}
+
+function mergeHistoryItems(...groups) {
+  const merged = []
+  const seen = new Set()
+
+  groups.flat().forEach((item, index) => {
+    const fingerprint = buildHistoryFingerprint(item)
+    if (seen.has(fingerprint)) {
+      return
+    }
+
+    seen.add(fingerprint)
+    merged.push({
+      ...item,
+      id: item.id || item.saved_at || Date.now() + index,
+      saved_at: item.saved_at || item.created_at || new Date().toISOString(),
+    })
+  })
+
+  return merged
+    .sort((left, right) => new Date(right.saved_at).getTime() - new Date(left.saved_at).getTime())
+    .slice(0, 12)
+}
+
+function persistHistoryItem(item) {
+  const nextItems = mergeHistoryItems(
+    [
+      {
+        ...item,
+        id: item.id || Date.now(),
+        saved_at: new Date().toISOString(),
+      },
+    ],
+    readLocalHistory(),
+  )
+  writeLocalHistory(nextItems)
+  return nextItems
+}
 
 function buildSourceChartData(result) {
   if (!result) {
@@ -352,14 +426,17 @@ function App() {
   async function fetchHistory() {
     setHistoryLoading(true)
     try {
+      const localItems = readLocalHistory()
       const response = await fetch(`${apiBaseUrl}/api/history?limit=8`)
       if (!response.ok) {
         throw new Error('Unable to load saved history.')
       }
       const data = await response.json()
-      setHistory(data.items)
+      const mergedItems = mergeHistoryItems(localItems, data.items)
+      writeLocalHistory(mergedItems)
+      setHistory(mergedItems)
     } catch {
-      setHistory([])
+      setHistory(readLocalHistory())
     } finally {
       setHistoryLoading(false)
     }
@@ -379,6 +456,7 @@ function App() {
       }
       const data = await response.json()
       setResult(data)
+      setHistory(persistHistoryItem(data))
       await fetchHistory()
     } catch (fetchError) {
       setError(fetchError.message)
@@ -417,11 +495,12 @@ function App() {
 
         if (isActive) {
           setResult(recommendationData)
-          setHistory(historyData.items)
+          setHistory(mergeHistoryItems(readLocalHistory(), historyData.items))
         }
       } catch (fetchError) {
         if (isActive) {
           setError(fetchError.message)
+          setHistory(readLocalHistory())
         }
       } finally {
         if (isActive) {

@@ -64,4 +64,5 @@ The frontend should be configured with:
 
 - Live weather data comes from Open-Meteo.
 - If the external weather API is unavailable, the backend falls back to a local estimator.
-- Saved history is stored in `backend/data/recommendations.db`.
+- Local history is stored in `backend/data/recommendations.db`.
+- On Vercel, history is stored in a temporary runtime database under `/tmp/mapsense`, so saved runs are ephemeral between cold starts.
