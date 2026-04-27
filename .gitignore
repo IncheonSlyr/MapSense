@@ -2,9 +2,11 @@
 .codex-logs/
 frontend/node_modules/
 frontend/dist/
-backend/app/__pycache__/
-backend/data/recommendations.db
-.vercel/
+**/__pycache__/
+**/.vercel/
+**/.env
+**/.env.*
+backend/data/
 *.pyc
 *.pyo
 *.log
