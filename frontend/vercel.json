@@ -1,9 +1,0 @@
-{
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "rewrites": [
-    {
-      "source": "/api/:match*",
-      "destination": "https://mapsense-api.vercel.app/api/:match*"
-    }
-  ]
-}
