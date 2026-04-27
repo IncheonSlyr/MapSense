@@ -3,7 +3,12 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import './App.css'
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || ''
+const hostedApiBaseUrl =
+  typeof window !== 'undefined' && window.location.hostname.endsWith('vercel.app')
+    ? 'https://mapsense-api.vercel.app'
+    : ''
+
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || hostedApiBaseUrl
 const LOCAL_HISTORY_KEY = 'mapsense-history'
 
 const initialForm = {
