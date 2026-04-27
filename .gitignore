@@ -1,0 +1,10 @@
+.venv/
+.codex-logs/
+frontend/node_modules/
+frontend/dist/
+backend/app/__pycache__/
+backend/data/recommendations.db
+.vercel/
+*.pyc
+*.pyo
+*.log
