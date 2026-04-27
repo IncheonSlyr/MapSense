@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MapSense</title>
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="hero-strip">
+        <div>
+          <p class="hero-kicker">Renewable Energy System</p>
+          <h1>MapSense</h1>
+          <p class="hero-copy">
+            Click the map or search a place, adjust the core inputs, and compare the best-fit renewable source with supporting data.
+          </p>
+        </div>
+        <div class="top-toolbar">
+          <button type="button" class="toolbar-button active" id="toggle-parameters">Hide parameters</button>
+          <button type="button" class="toolbar-button" id="open-history">Saved history</button>
+        </div>
+      </header>
+
+      <div class="sidebar-overlay" id="history-overlay"></div>
+
+      <aside class="sidebar-drawer" id="history-drawer">
+        <div class="sidebar-drawer-header">
+          <div>
+            <p class="section-kicker">Saved runs</p>
+            <h2>Recommendation history</h2>
+          </div>
+          <button type="button" class="sidebar-close" id="close-history">x</button>
+        </div>
+        <div class="history-list" id="history-list"></div>
+      </aside>
+
+      <section class="workspace-grid" id="workspace-grid">
+        <section class="map-stage">
+          <div class="panel-heading">
+            <div>
+              <p class="section-kicker">Map</p>
+              <h2 id="selected-location-heading">Selected location</h2>
+            </div>
+            <p class="panel-copy" id="map-status-copy">Click anywhere on the map to update the location.</p>
+          </div>
+          <div id="actual-map" class="actual-map" aria-label="Location map"></div>
+        </section>
+
+        <form class="parameter-panel" id="recommendation-form">
+          <div class="panel-heading">
+            <div>
+              <p class="section-kicker">Parameters</p>
+              <h2>Input controls</h2>
+            </div>
+            <p class="panel-copy">Map on the left, input controls on the right.</p>
+          </div>
+
+          <div class="preset-row" id="preset-row"></div>
+
+          <label>
+            Search by city
+            <input type="text" id="search-input" placeholder="Search city or region">
+          </label>
+
+          <p class="helper-copy hidden" id="search-loading">Searching locations...</p>
+          <div class="search-results" id="search-results"></div>
+
+          <label>
+            Location label
+            <input type="text" id="location-name-input" placeholder="Project site name">
+          </label>
+
+          <div class="input-row">
+            <label>
+              Latitude
+              <input type="number" id="latitude-input" step="0.0001" min="-90" max="90">
+            </label>
+            <label>
+              Longitude
+              <input type="number" id="longitude-input" step="0.0001" min="-180" max="180">
+            </label>
+          </div>
+
+          <label>
+            Estimated demand (kW)
+            <input type="number" id="demand-input" step="1" min="1" max="10000">
+          </label>
+
+          <button type="submit" class="inline-button action-button">Analyze site</button>
+          <p class="error-copy hidden" id="form-error"></p>
+        </form>
+      </section>
+
+      <section class="results-section">
+        <p class="status-copy" id="loading-copy">Analyzing location conditions...</p>
+
+        <div id="result-shell" class="hidden">
+          <section class="summary-strip">
+            <div class="summary-intro">
+              <p class="section-kicker">Best recommendation</p>
+              <h2 id="best-source-name"></h2>
+              <p class="hero-copy" id="recommendation-summary"></p>
+              <div class="summary-meta">
+                <span id="summary-location"></span>
+                <span id="summary-source"></span>
+                <span id="summary-demand"></span>
+              </div>
+            </div>
+            <div class="summary-stats">
+              <div>
+                <span>Confidence</span>
+                <strong id="summary-confidence"></strong>
+              </div>
+              <div>
+                <span>Output</span>
+                <strong id="summary-output"></strong>
+              </div>
+              <div>
+                <span>Efficiency</span>
+                <strong id="summary-efficiency"></strong>
+              </div>
+            </div>
+          </section>
+
+          <section class="rank-grid" id="rank-grid"></section>
+
+          <section class="details-shell">
+            <div class="panel-heading">
+              <div>
+                <p class="section-kicker">Support data</p>
+                <h2>Supporting views</h2>
+              </div>
+              <div class="segmented-control">
+                <button type="button" class="active" data-view="source">Source</button>
+                <button type="button" data-view="roi">ROI</button>
+                <button type="button" data-view="weather">Weather</button>
+                <button type="button" data-view="site">Site</button>
+              </div>
+            </div>
+
+            <div id="detail-source" class="detail-view"></div>
+            <div id="detail-roi" class="detail-view hidden"></div>
+            <div id="detail-weather" class="detail-view hidden"></div>
+            <div id="detail-site" class="detail-view hidden"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <script src="/static/app.js"></script>
+  </body>
+  </html>

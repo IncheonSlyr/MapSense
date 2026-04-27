@@ -12,3 +12,5 @@ coverage/
 *.pyc
 *.pyo
 *.log
+
+.vercel
