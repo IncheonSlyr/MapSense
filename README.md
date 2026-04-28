@@ -8,6 +8,9 @@ MapSense is a single-app renewable energy recommendation dashboard built with Fl
 - Python recommendation model
 - Solar, Wind, and Hydro rankings with rationale
 - Source comparison and ROI views
+- Seasonal outlook and hybrid mix planning
+- Scenario-aware controls for budget, land, and planning priority
+- Carbon impact and annual value estimates
 - Weather widget and grouped site-relevance panels
 - Local saved-history drawer in the browser
 

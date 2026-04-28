@@ -3,13 +3,43 @@ const initialForm = {
   latitude: 26.9157,
   longitude: 70.9083,
   demand_kw: 180,
+  budget_usd: 260000,
+  land_acres: 5.2,
+  strategy: 'balanced',
 }
 
 const presets = [
   { name: 'Jaisalmer, India', ...initialForm },
-  { name: 'Copenhagen, Denmark', location_name: 'Copenhagen, Denmark', latitude: 55.6761, longitude: 12.5683, demand_kw: 220 },
-  { name: 'Reykjavik, Iceland', location_name: 'Reykjavik, Iceland', latitude: 64.1466, longitude: -21.9426, demand_kw: 160 },
-  { name: 'Nairobi, Kenya', location_name: 'Nairobi, Kenya', latitude: -1.2864, longitude: 36.8172, demand_kw: 200 },
+  {
+    name: 'Copenhagen, Denmark',
+    location_name: 'Copenhagen, Denmark',
+    latitude: 55.6761,
+    longitude: 12.5683,
+    demand_kw: 220,
+    budget_usd: 380000,
+    land_acres: 8.2,
+    strategy: 'resilience',
+  },
+  {
+    name: 'Reykjavik, Iceland',
+    location_name: 'Reykjavik, Iceland',
+    latitude: 64.1466,
+    longitude: -21.9426,
+    demand_kw: 160,
+    budget_usd: 420000,
+    land_acres: 4.5,
+    strategy: 'balanced',
+  },
+  {
+    name: 'Nairobi, Kenya',
+    location_name: 'Nairobi, Kenya',
+    latitude: -1.2864,
+    longitude: 36.8172,
+    demand_kw: 200,
+    budget_usd: 290000,
+    land_acres: 6.5,
+    strategy: 'roi',
+  },
 ]
 
 const featureLabels = {
@@ -55,9 +85,25 @@ const siteGroups = [
 ]
 
 const sourceStyles = {
-  Solar: 'var(--accent-butter-strong)',
-  Wind: 'var(--accent-sky-strong)',
-  Hydro: 'var(--accent-mint-strong)',
+  Solar: {
+    solid: '#d9a441',
+    soft: 'color-mix(in srgb, var(--accent-butter) 70%, white 30%)',
+  },
+  Wind: {
+    solid: '#5a86b9',
+    soft: 'color-mix(in srgb, var(--accent-sky) 76%, white 24%)',
+  },
+  Hydro: {
+    solid: '#4f7d78',
+    soft: 'color-mix(in srgb, var(--accent-mint) 76%, white 24%)',
+  },
+}
+
+const strategyLabels = {
+  balanced: 'Balanced',
+  roi: 'Fast payback',
+  resilience: 'Resilience',
+  output: 'Maximum output',
 }
 
 const HISTORY_KEY = 'mapsense-history'
@@ -94,6 +140,9 @@ const elements = {
   latitude: document.getElementById('latitude-input'),
   longitude: document.getElementById('longitude-input'),
   demand: document.getElementById('demand-input'),
+  budget: document.getElementById('budget-input'),
+  land: document.getElementById('land-input'),
+  strategy: document.getElementById('strategy-input'),
   formError: document.getElementById('form-error'),
   loadingCopy: document.getElementById('loading-copy'),
   resultShell: document.getElementById('result-shell'),
@@ -107,9 +156,14 @@ const elements = {
   summaryConfidence: document.getElementById('summary-confidence'),
   summaryOutput: document.getElementById('summary-output'),
   summaryEfficiency: document.getElementById('summary-efficiency'),
+  summaryCarbon: document.getElementById('summary-carbon'),
+  plannerChipRow: document.getElementById('planner-chip-row'),
+  plannerNoteList: document.getElementById('planner-note-list'),
   rankGrid: document.getElementById('rank-grid'),
   detailSource: document.getElementById('detail-source'),
   detailRoi: document.getElementById('detail-roi'),
+  detailSeasonal: document.getElementById('detail-seasonal'),
+  detailHybrid: document.getElementById('detail-hybrid'),
   detailWeather: document.getElementById('detail-weather'),
   detailSite: document.getElementById('detail-site'),
   segmentedButtons: Array.from(document.querySelectorAll('.segmented-control button')),
@@ -132,9 +186,27 @@ function writeHistory(items) {
 function mergeHistory(nextItem) {
   const current = readHistory()
   const deduped = [nextItem, ...current].filter((item, index, array) => {
-    const fingerprint = `${item.location_name}|${item.location.latitude}|${item.location.longitude}|${item.demand_kw}|${item.fetched_at}`
+    const fingerprint = [
+      item.location_name,
+      item.location.latitude,
+      item.location.longitude,
+      item.demand_kw,
+      item.scenario?.budget_usd,
+      item.scenario?.land_acres,
+      item.scenario?.strategy,
+      item.fetched_at,
+    ].join('|')
     return array.findIndex((candidate) => {
-      const candidateFingerprint = `${candidate.location_name}|${candidate.location.latitude}|${candidate.location.longitude}|${candidate.demand_kw}|${candidate.fetched_at}`
+      const candidateFingerprint = [
+        candidate.location_name,
+        candidate.location.latitude,
+        candidate.location.longitude,
+        candidate.demand_kw,
+        candidate.scenario?.budget_usd,
+        candidate.scenario?.land_acres,
+        candidate.scenario?.strategy,
+        candidate.fetched_at,
+      ].join('|')
       return candidateFingerprint === fingerprint
     }) === index
   })
@@ -148,6 +220,9 @@ function setForm(form) {
   elements.latitude.value = state.form.latitude
   elements.longitude.value = state.form.longitude
   elements.demand.value = state.form.demand_kw
+  elements.budget.value = state.form.budget_usd
+  elements.land.value = state.form.land_acres
+  elements.strategy.value = state.form.strategy
   elements.selectedLocationHeading.textContent = state.form.location_name || 'Selected location'
   if (state.marker) {
     state.marker.setLatLng([state.form.latitude, state.form.longitude])
@@ -164,6 +239,18 @@ function setForm(form) {
 
 function formatMetric(value, suffix = '') {
   return `${Number(value).toFixed(1)}${suffix}`
+}
+
+function formatInteger(value) {
+  return Number(value).toLocaleString('en-US', { maximumFractionDigits: 0 })
+}
+
+function formatCurrency(value) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(Number(value))
 }
 
 function formatWeatherValue(key, value) {
@@ -200,6 +287,11 @@ function renderHistory() {
         </div>
         <span>${item.demand_kw} kW</span>
       </button>
+      <div class="history-item-meta">
+        <span>${formatCurrency(item.scenario?.budget_usd || 0)} budget</span>
+        <span>${Number(item.scenario?.land_acres || 0).toFixed(1)} acres</span>
+        <span>${strategyLabels[item.scenario?.strategy] || 'Balanced'}</span>
+      </div>
     `
     wrapper.querySelector('button').addEventListener('click', () => {
       setForm({
@@ -207,6 +299,9 @@ function renderHistory() {
         latitude: Number(item.location.latitude),
         longitude: Number(item.location.longitude),
         demand_kw: Number(item.demand_kw),
+        budget_usd: Number(item.scenario?.budget_usd || initialForm.budget_usd),
+        land_acres: Number(item.scenario?.land_acres || initialForm.land_acres),
+        strategy: item.scenario?.strategy || initialForm.strategy,
       })
       elements.searchInput.value = state.form.location_name
       state.result = item
@@ -229,8 +324,8 @@ function renderRankings(rankings, bestSource) {
       </div>
       <div class="rank-measure"><span>Score</span><strong>${item.score}%</strong></div>
       <div class="rank-measure"><span>Output</span><strong>${item.estimated_output_kw} kW</strong></div>
-      <div class="rank-measure"><span>Efficiency</span><strong>${item.expected_efficiency}%</strong></div>
-      <div class="rank-measure"><span>ROI</span><strong>${item.roi_years} yrs</strong></div>
+      <div class="rank-measure"><span>Payback</span><strong>${item.roi_years} yrs</strong></div>
+      <div class="rank-measure"><span>Carbon</span><strong>${item.annual_carbon_offset_tons} t</strong></div>
     `
     elements.rankGrid.appendChild(article)
   })
@@ -244,7 +339,7 @@ function renderSourceChart(rankings) {
           <p class="section-kicker">Source</p>
           <h3>Source comparison</h3>
         </div>
-        <p class="panel-copy">Score, output, and efficiency at a glance.</p>
+        <p class="panel-copy">Suitability score, annual value, and planner fit for each source.</p>
       </div>
       <div class="stat-chart">
         <div class="stat-axis">${[100, 75, 50, 25, 0].map((tick) => `<span>${tick}%</span>`).join('')}</div>
@@ -255,9 +350,12 @@ function renderSourceChart(rankings) {
               <div class="stat-bar-group">
                 <div class="stat-bar-head"><span>${item.source}</span><strong>${item.score}%</strong></div>
                 <div class="stat-bar-shell">
-                  <div class="stat-bar-fill" style="height:${item.score}%;background:${sourceStyles[item.source]}"></div>
+                  <div class="stat-bar-fill" style="height:${item.score}%;background:${sourceStyles[item.source].solid}"></div>
                 </div>
-                <div class="stat-bar-foot"><span>${item.estimated_output_kw} kW</span><span>${item.expected_efficiency}% eff.</span></div>
+                <div class="stat-bar-foot">
+                  <span>${formatCurrency(item.annual_value_usd)}/yr</span>
+                  <span>${item.budget_fit}% budget fit</span>
+                </div>
               </div>
             `).join('')}
           </div>
@@ -276,16 +374,98 @@ function renderRoiChart(rankings) {
           <p class="section-kicker">Economics</p>
           <h3>ROI comparison</h3>
         </div>
-        <p class="panel-copy">Lower payback years are a stronger financial fit.</p>
+        <p class="panel-copy">Lower payback years are stronger. Capital and carbon are shown side by side.</p>
       </div>
       <div class="roi-chart">
         ${rankings.map((item) => `
           <div class="roi-row">
-            <div class="roi-meta"><strong>${item.source}</strong><span>${item.score}% score</span></div>
-            <div class="roi-track"><div class="roi-fill" style="width:${(item.roi_years / maxRoi) * 100}%;background:${sourceStyles[item.source]}"></div></div>
+            <div class="roi-meta"><strong>${item.source}</strong><span>${formatCurrency(item.estimated_capex_usd)} capex</span></div>
+            <div class="roi-track"><div class="roi-fill" style="width:${(item.roi_years / maxRoi) * 100}%;background:${sourceStyles[item.source].solid}"></div></div>
             <strong class="roi-value">${item.roi_years} yrs</strong>
           </div>
         `).join('')}
+      </div>
+      <div class="impact-grid">
+        ${rankings.map((item) => `
+          <article class="impact-card tone-${item.source === 'Solar' ? 'butter' : item.source === 'Wind' ? 'sky' : 'mint'}">
+            <span>${item.source}</span>
+            <strong>${formatInteger(item.annual_energy_kwh)} kWh</strong>
+            <p>${item.annual_carbon_offset_tons} t CO2 avoided per year</p>
+          </article>
+        `).join('')}
+      </div>
+    </section>
+  `
+}
+
+function renderSeasonalOutlook(seasonalOutlook) {
+  const monthRows = seasonalOutlook.map((entry) => `
+    <article class="season-row">
+      <div class="season-month">
+        <strong>${entry.month}</strong>
+        <span>${entry.winner} leads</span>
+      </div>
+      <div class="season-tracks">
+        ${entry.sources.map((source) => `
+          <div class="season-track-row">
+            <span>${source.source}</span>
+            <div class="season-track">
+              <div class="season-track-fill" style="width:${Math.min(source.efficiency, 100)}%;background:${sourceStyles[source.source].solid}"></div>
+            </div>
+            <strong>${source.output_kw} kW</strong>
+          </div>
+        `).join('')}
+      </div>
+    </article>
+  `).join('')
+
+  elements.detailSeasonal.innerHTML = `
+    <section class="data-panel">
+      <div class="panel-heading">
+        <div>
+          <p class="section-kicker">Seasonal</p>
+          <h3>Year-round performance</h3>
+        </div>
+        <p class="panel-copy">Monthly output shifts by source so you can spot seasonal handoffs.</p>
+      </div>
+      <div class="seasonal-grid">
+        ${monthRows}
+      </div>
+    </section>
+  `
+}
+
+function renderHybridPlan(hybridPlan) {
+  elements.detailHybrid.innerHTML = `
+    <section class="data-panel">
+      <div class="panel-heading">
+        <div>
+          <p class="section-kicker">Hybrid</p>
+          <h3>${hybridPlan.label}</h3>
+        </div>
+        <p class="panel-copy">${hybridPlan.rationale}</p>
+      </div>
+      <div class="hybrid-layout">
+        <article class="hybrid-hero tone-lavender">
+          <div>
+            <span class="weather-overline">Blended system recommendation</span>
+            <strong>${hybridPlan.blended_output_kw} kW</strong>
+            <p class="panel-copy">${hybridPlan.demand_coverage_percent}% of the modeled demand can be covered in this blended plan.</p>
+          </div>
+          <div class="hybrid-share-list">
+            ${hybridPlan.mix.map((item) => `
+              <div class="hybrid-share-pill" style="background:${sourceStyles[item.source].soft}">
+                <span>${item.source}</span>
+                <strong>${item.share_percent}%</strong>
+              </div>
+            `).join('')}
+          </div>
+        </article>
+        <div class="hybrid-metrics">
+          <article class="impact-card tone-butter"><span>Efficiency</span><strong>${hybridPlan.blended_efficiency}%</strong><p>Blended operating efficiency</p></article>
+          <article class="impact-card tone-sky"><span>Payback</span><strong>${hybridPlan.blended_roi_years} yrs</strong><p>Modeled blended payback</p></article>
+          <article class="impact-card tone-mint"><span>Carbon</span><strong>${hybridPlan.annual_carbon_offset_tons} t</strong><p>Annual avoided emissions</p></article>
+        </div>
       </div>
     </section>
   `
@@ -343,7 +523,7 @@ function renderWeather(weatherContext, locationName) {
   `
 }
 
-function renderSite(estimatedFeatures, locationName) {
+function renderSite(estimatedFeatures, locationName, scenario) {
   elements.detailSite.innerHTML = `
     <section class="data-panel">
       <div class="panel-heading">
@@ -351,14 +531,14 @@ function renderSite(estimatedFeatures, locationName) {
           <p class="section-kicker">Site</p>
           <h3>Estimated parameters</h3>
         </div>
-        <p class="panel-copy">Features passed into the recommendation model.</p>
+        <p class="panel-copy">Features passed into the recommendation model plus the active planning scenario.</p>
       </div>
       <div class="site-profile">
         <div class="site-profile-hero tone-lavender">
           <div>
             <span class="weather-overline">Model input profile</span>
             <strong>${locationName || 'Selected site'}</strong>
-            <p class="panel-copy">Key geographic and environmental parameters driving the recommendation.</p>
+            <p class="panel-copy">Budget ${formatInteger(scenario.budget_usd)}, ${Number(scenario.land_acres).toFixed(1)} acres, ${strategyLabels[scenario.strategy] || 'Balanced'} priority.</p>
           </div>
           <div class="site-profile-badges">
             <span class="site-badge tone-butter">${formatMetric(estimatedFeatures.solar_irradiance)} solar</span>
@@ -397,6 +577,21 @@ function renderSite(estimatedFeatures, locationName) {
   `
 }
 
+function renderPlannerHighlights(result) {
+  const highlights = result.planner_highlights || {}
+  const scenario = result.scenario || {}
+  elements.plannerChipRow.innerHTML = `
+    <span class="planner-chip tone-lavender">${strategyLabels[scenario.strategy] || 'Balanced'} mode</span>
+    <span class="planner-chip tone-butter">${formatCurrency(scenario.budget_usd || 0)} budget</span>
+    <span class="planner-chip tone-sky">${Number(scenario.land_acres || 0).toFixed(1)} acres</span>
+    <span class="planner-chip tone-mint">${highlights.land_required_acres || 0} acres needed</span>
+    <span class="planner-chip tone-peach">${highlights.annual_carbon_offset_tons || 0} t CO2/yr</span>
+  `
+  elements.plannerNoteList.innerHTML = (result.planner_notes || [])
+    .map((note) => `<p class="planner-note">${note}</p>`)
+    .join('')
+}
+
 function renderResult() {
   if (!state.result) {
     return
@@ -415,12 +610,16 @@ function renderResult() {
   elements.summaryConfidence.textContent = `${state.result.confidence}%`
   elements.summaryOutput.textContent = `${lead.estimated_output_kw} kW`
   elements.summaryEfficiency.textContent = `${lead.expected_efficiency}%`
+  elements.summaryCarbon.textContent = `${lead.annual_carbon_offset_tons} t`
 
+  renderPlannerHighlights(state.result)
   renderRankings(rankings, state.result.best_source)
   renderSourceChart(rankings)
   renderRoiChart(rankings)
+  renderSeasonalOutlook(state.result.seasonal_outlook || [])
+  renderHybridPlan(state.result.hybrid_plan)
   renderWeather(state.result.weather_context || {}, state.result.location_name)
-  renderSite(state.result.estimated_features, state.result.location_name)
+  renderSite(state.result.estimated_features, state.result.location_name, state.result.scenario || state.form)
 }
 
 function setDetailView(view) {
@@ -430,6 +629,8 @@ function setDetailView(view) {
   })
   elements.detailSource.classList.toggle('hidden', view !== 'source')
   elements.detailRoi.classList.toggle('hidden', view !== 'roi')
+  elements.detailSeasonal.classList.toggle('hidden', view !== 'seasonal')
+  elements.detailHybrid.classList.toggle('hidden', view !== 'hybrid')
   elements.detailWeather.classList.toggle('hidden', view !== 'weather')
   elements.detailSite.classList.toggle('hidden', view !== 'site')
 }
@@ -614,6 +815,9 @@ function initEvents() {
         latitude: preset.latitude,
         longitude: preset.longitude,
         demand_kw: preset.demand_kw,
+        budget_usd: preset.budget_usd,
+        land_acres: preset.land_acres,
+        strategy: preset.strategy,
       })
       elements.searchInput.value = preset.location_name
       void requestRecommendation()
@@ -631,6 +835,9 @@ function initEvents() {
   elements.latitude.addEventListener('input', () => setForm({ latitude: Number(elements.latitude.value) }))
   elements.longitude.addEventListener('input', () => setForm({ longitude: Number(elements.longitude.value) }))
   elements.demand.addEventListener('input', () => setForm({ demand_kw: Number(elements.demand.value) }))
+  elements.budget.addEventListener('input', () => setForm({ budget_usd: Number(elements.budget.value) }))
+  elements.land.addEventListener('input', () => setForm({ land_acres: Number(elements.land.value) }))
+  elements.strategy.addEventListener('change', () => setForm({ strategy: elements.strategy.value }))
 
   elements.form.addEventListener('submit', (event) => {
     event.preventDefault()
